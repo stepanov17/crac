@@ -103,22 +103,24 @@ public class WaitNotifyTest {
 
         } else {
 
-            ProcessBuilder pb = ProcessTools.createJavaProcessBuilder(
-                "-XX:CRaCCheckpointTo=cr", "WaitNotifyTest", "true");
-            OutputAnalyzer out = new OutputAnalyzer(pb.start());
-            out.shouldContain("CR: Checkpoint");
-            out.shouldHaveExitValue(137);
+            ProcessBuilder pb;
+            OutputAnalyzer out;
+
+            String notifyAll[] = {"true", "false"};
+            for (String arg: notifyAll) {
+
+                pb = ProcessTools.createJavaProcessBuilder(
+                    "-XX:CRaCCheckpointTo=cr", "WaitNotifyTest", arg);
+                out = new OutputAnalyzer(pb.start());
+                out.shouldContain("CR: Checkpoint");
+                out.shouldHaveExitValue(137);
 
 
-            pb = ProcessTools.createJavaProcessBuilder(
-                "-XX:CRaCRestoreFrom=cr", "WaitNotifyTest", "true");
-            out = new OutputAnalyzer(pb.start());
-            out.shouldHaveExitValue(0);
-
-            pb = ProcessTools.createJavaProcessBuilder(
-                "-XX:CRaCRestoreFrom=cr", "WaitNotifyTest", "false");
-            out = new OutputAnalyzer(pb.start());
-            out.shouldHaveExitValue(0);
+                pb = ProcessTools.createJavaProcessBuilder(
+                    "-XX:CRaCRestoreFrom=cr", "WaitNotifyTest", arg);
+                out = new OutputAnalyzer(pb.start());
+                out.shouldHaveExitValue(0);
+            }
         }
     }
 }
