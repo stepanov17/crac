@@ -32,13 +32,13 @@
 import java.util.Timer;
 import java.util.TimerTask;
 
-import jdk.crac.Core;
-
 import jdk.test.lib.process.OutputAnalyzer;
 import jdk.test.lib.process.ProcessTools;
 
 
 public class TimerTaskOnCRPauseTest {
+
+    private static final long DT_MAX = 300_000_000; // 0.3s
 
     static volatile boolean done = false;
 
@@ -51,13 +51,18 @@ public class TimerTaskOnCRPauseTest {
         };
 
         Timer timer = new Timer();
-        timer.schedule(task, 2000); // schedule task on C/R pause
-
-        Thread.sleep(300);
+        timer.schedule(task, 1500); // schedule task on C/R pause
 
         jdk.crac.Core.checkpointRestore();
 
-        Thread.sleep(100); // do not wait long here
+        long t0 = System.nanoTime(), dt = 0;
+
+        while (!done && (dt <= DT_MAX)) {
+
+            Thread.onSpinWait();
+            dt = System.nanoTime() - t0;
+        }
+
         timer.cancel();
 
         if (!done) {
