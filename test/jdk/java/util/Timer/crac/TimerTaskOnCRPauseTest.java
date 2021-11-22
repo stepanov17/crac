@@ -40,7 +40,7 @@ public class TimerTaskOnCRPauseTest {
 
     private static final long DT_MAX = 300_000_000; // 0.3s
 
-    static volatile boolean done = false;
+    private static volatile boolean done = false;
 
     private static void runTest() throws Exception {
 
@@ -57,7 +57,7 @@ public class TimerTaskOnCRPauseTest {
 
         long t0 = System.nanoTime(), dt = 0;
 
-        while (!done && (dt <= DT_MAX)) {
+        while (!done && (dt <= DT_MAX)) { // "immediately" == "in 0.3 sec" here
 
             Thread.onSpinWait();
             dt = System.nanoTime() - t0;
