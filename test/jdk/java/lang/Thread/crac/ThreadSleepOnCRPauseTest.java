@@ -39,7 +39,7 @@ import java.util.concurrent.CountDownLatch;
 public class ThreadSleepOnCRPauseTest {
 
     private final static long SLEEP   = 1500; // [ms]
-    private final static long CRPAUSE = 2000; // [ms]
+    private final static long CRPAUSE = 2500; // [ms]
 
     private final static long EPS = 300_000_000; // [ns], i.e. 0.3 s
 
@@ -94,20 +94,21 @@ public class ThreadSleepOnCRPauseTest {
 
         // being paranoid #1
         long pause = afterRestore - beforeCheckpoint;
-        if (pause < 1_000_000 * CRPAUSE) {
+        if (pause < 1_000_000 * CRPAUSE - EPS) {
             throw new RuntimeException("the CR pause was less than " + CRPAUSE + " msec");
         }
 
         // being paranoid #2
-        if (end1Time < beforeCheckpoint || end2Time < beforeCheckpoint) {
-            throw new RuntimeException("sleep finished before checkpoint for at least one thread");
+        if (end1Time < beforeCheckpoint + EPS || end2Time < beforeCheckpoint + EPS) {
+            throw new RuntimeException("sleep might probably was finished " +
+                "before the checkpoint for at least one thread");
         }
 
         if (Math.max(
                 Math.abs(afterRestore - end1Time),
                 Math.abs(afterRestore - end2Time))  > EPS) {
-            throw new RuntimeException("the sleeping threads were not "
-                    + "finished in " + EPS + " ns");
+            throw new RuntimeException("the sleeping threads were not " +
+                    "finished in " + EPS + " ns after the restore");
         }
     }
 
