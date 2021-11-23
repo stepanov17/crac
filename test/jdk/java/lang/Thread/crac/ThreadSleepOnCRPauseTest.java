@@ -38,13 +38,15 @@ import java.util.concurrent.CountDownLatch;
 
 public class ThreadSleepOnCRPauseTest {
 
-
-    private final static long SLEEP = 1500; // [ms]
+    private final static long SLEEP   = 1500; // [ms]
     private final static long CRPAUSE = 2000; // [ms]
 
     private final static long EPS = 300_000_000; // [ns], i.e. 0.3 s
 
     private final CountDownLatch sleepLatch = new CountDownLatch(1);
+
+    private volatile long end1Time = 0;
+    private volatile long end2Time = 0;
 
 
     private void runTest() throws Exception {
@@ -54,6 +56,7 @@ public class ThreadSleepOnCRPauseTest {
             try {
                 sleepLatch.await();
                 Thread.sleep(SLEEP);
+                end1Time = System.nanoTime();
             } catch (InterruptedException ie) {
                 throw new RuntimeException(ie);
             }
@@ -64,6 +67,7 @@ public class ThreadSleepOnCRPauseTest {
             try {
                 sleepLatch.await();
                 Thread.sleep(SLEEP, 20);
+                end2Time = System.nanoTime();
             } catch (InterruptedException ie) {
                 throw new RuntimeException(ie);
             }
@@ -72,7 +76,7 @@ public class ThreadSleepOnCRPauseTest {
         Thread t1 = new Thread(r1), t2 = new Thread(r2);
         t1.start();
         t2.start();
-        sleepLatch.countDown(); // sleep simultanously
+        sleepLatch.countDown(); // sleep simultaneously
 
         while ((t1.getState() != Thread.State.TIMED_WAITING) &&
                (t2.getState() != Thread.State.TIMED_WAITING)) {
@@ -84,18 +88,25 @@ public class ThreadSleepOnCRPauseTest {
         jdk.crac.Core.checkpointRestore();
 
         long afterRestore = System.nanoTime();
-        long pause = afterRestore - beforeCheckpoint;
-        if (pause < 1_000_000 * CRPAUSE) {
-            throw new RuntimeException("the CR pause is less than " + CRPAUSE + " msec");
-        }
 
         t1.join();
         t2.join();
 
-        long threadsEndTime = System.nanoTime();
+        // being paranoid #1
+        long pause = afterRestore - beforeCheckpoint;
+        if (pause < 1_000_000 * CRPAUSE) {
+            throw new RuntimeException("the CR pause was less than " + CRPAUSE + " msec");
+        }
 
-        if (Math.abs(afterRestore - threadsEndTime) > EPS) {
-            throw new RuntimeException("the sleeping threads were not"
+        // being paranoid #2
+        if (end1Time < beforeCheckpoint || end2Time < beforeCheckpoint) {
+            throw new RuntimeException("sleep finished before checkpoint for at least one thread");
+        }
+
+        if (Math.max(
+                Math.abs(afterRestore - end1Time),
+                Math.abs(afterRestore - end2Time))  > EPS) {
+            throw new RuntimeException("the sleeping threads were not "
                     + "finished in " + EPS + " ns");
         }
     }
