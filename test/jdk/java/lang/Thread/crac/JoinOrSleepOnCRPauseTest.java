@@ -26,7 +26,11 @@
  *          will be completed on restore immediately
  *          if their end time fell on the CRaC pause period
  *          (i.e. between the checkpoint and restore)
- * @run main/othervm JoinOrSleepOnCRPauseTest
+ *
+ * @run main/othervm JoinOrSleepOnCRPauseTest join_ms
+ * @run main/othervm JoinOrSleepOnCRPauseTest join_ns
+ * @run main/othervm JoinOrSleepOnCRPauseTest sleep_ms
+ * @run main/othervm JoinOrSleepOnCRPauseTest sleep_ns
  */
 
 
@@ -38,27 +42,25 @@ import java.util.concurrent.CountDownLatch;
 
 public class JoinOrSleepOnCRPauseTest {
 
-    private static enum TestType {join, sleep};
+    private static enum TestType {join_ms, join_ns, sleep_ms, sleep_ns};
     private final TestType testType;
 
-    private final boolean nsAccuracy;
-
-    private final static long EPS_NS = Long.parseLong(
-        System.getProperty("cractests.time.eps", "100000000")); // default: 0.1s
-
-    private static final long T_MS = 2000;
-    private static final  int T_NS = 100;
+    private final static long EPS_NS = Long.parseLong(System.getProperty(
+        "test.jdk.java.lang.Thread.crac.JoinOrSleepOnCRPauseTest.eps",
+        "100000000")); // default: 0.1s
 
     private static final long CRPAUSE_MS = 4000;
+
+    private static final long T_MS = CRPAUSE_MS / 2;
+    private static final  int T_NS = 100;
 
     private volatile long tDone = -1;
 
     private final CountDownLatch checkpointLatch = new CountDownLatch(1);
 
 
-    private JoinOrSleepOnCRPauseTest(TestType testType, boolean nsAccuracy) {
-        this.testType   = testType;
-        this.nsAccuracy = nsAccuracy;
+    private JoinOrSleepOnCRPauseTest(TestType testType) {
+        this.testType = testType;
     }
 
     private void runTest() throws Exception {
@@ -75,20 +77,20 @@ public class JoinOrSleepOnCRPauseTest {
 
                 switch (testType) {
 
-                    case join:
-                        if (nsAccuracy) {
-                            mainThread.join(T_MS, T_NS);
-                        } else {
-                            mainThread.join(T_MS);
-                        }
+                    case join_ms:
+                        mainThread.join(T_MS);
                         break;
 
-                    case sleep:
-                        if (nsAccuracy) {
-                            Thread.sleep(T_MS, T_NS);
-                        } else {
-                            Thread.sleep(T_MS);
-                        }
+                    case join_ns:
+                        mainThread.join(T_MS, T_NS);
+                        break;
+
+                    case sleep_ms:
+                        Thread.sleep(T_MS);
+                        break;
+
+                    case sleep_ns:
+                        Thread.sleep(T_MS, T_NS);
                         break;
 
                     default:
@@ -130,19 +132,19 @@ public class JoinOrSleepOnCRPauseTest {
 
         long pause = tAfterRestore - tBeforeCheckpoint;
         if (pause < 1_000_000 * CRPAUSE_MS - EPS_NS) {
-            throw new RuntimeException(
+            throw new AssertionError(
                 "the CR pause was less than " + CRPAUSE_MS + " ms");
         }
 
         if (tDone < tBeforeCheckpoint + EPS_NS) {
-            throw new RuntimeException(
+            throw new AssertionError(
                 op + " has finished before the checkpoint");
         }
 
         long eps = Math.abs(tAfterRestore - tDone);
 
         if (eps > EPS_NS) {
-            throw new RuntimeException(
+            throw new AssertionError(
                 "the " + op + "ing thread has finished in " + eps + " ns "
                 + "after the restore (expected: " + EPS_NS + " ns)");
         }
@@ -151,44 +153,34 @@ public class JoinOrSleepOnCRPauseTest {
 
     public static void main(String args[]) throws Exception {
 
-        if (args.length > 0) {
-
-            if (args.length < 2) {
-                throw new RuntimeException(
-                    "please specify test parameters (testType, nsAccuracy)");
-            }
+        if (args.length > 1) {
 
             new JoinOrSleepOnCRPauseTest(
-                    TestType.valueOf(args[0]),
-                    Boolean.parseBoolean(args[1])).runTest();
+                    TestType.valueOf(args[0])).runTest();
+
+        } else if (args.length > 0) {
+
+            String crImg = "cr_" + args[0];
+
+            ProcessBuilder pb = ProcessTools.createJavaProcessBuilder(
+                "-XX:CRaCCheckpointTo=" + crImg, "JoinOrSleepOnCRPauseTest",
+                args[0], "runTest");
+            OutputAnalyzer out = new OutputAnalyzer(pb.start());
+            out.shouldContain("CR: Checkpoint");
+            out.shouldHaveExitValue(137);
+
+            // sleep a few seconds to ensure the task execution time
+            // falls within this pause period
+            Thread.sleep(CRPAUSE_MS);
+
+            pb = ProcessTools.createJavaProcessBuilder(
+                "-XX:CRaCRestoreFrom=" + crImg, "JoinOrSleepOnCRPauseTest");
+            out = new OutputAnalyzer(pb.start());
+            out.shouldHaveExitValue(0);
 
         } else {
 
-            ProcessBuilder pb;
-            OutputAnalyzer out;
-
-            String type[] = {"join", "sleep"};
-            String nsAccuracy[] = {"false", "true"};
-
-            for (String t: type) {
-                for (String acc: nsAccuracy) {
-
-                    pb = ProcessTools.createJavaProcessBuilder(
-                        "-XX:CRaCCheckpointTo=cr", "JoinOrSleepOnCRPauseTest", t, acc);
-                    out = new OutputAnalyzer(pb.start());
-                    out.shouldContain("CR: Checkpoint");
-                    out.shouldHaveExitValue(137);
-
-                    // sleep a few seconds to ensure the task execution time
-                    // falls within this pause period
-                    Thread.sleep(CRPAUSE_MS);
-
-                    pb = ProcessTools.createJavaProcessBuilder(
-                        "-XX:CRaCRestoreFrom=cr", "JoinOrSleepOnCRPauseTest");
-                    out = new OutputAnalyzer(pb.start());
-                    out.shouldHaveExitValue(0);
-                }
-            }
+            throw new IllegalArgumentException("please provide a test type");
         }
     }
 }
