@@ -118,7 +118,7 @@ public class JoinOrSleepOnCRPauseTest {
         Thread.sleep(dt / 1_000_000);
 
         if (t.getState() != Thread.State.TIMED_WAITING) {
-            throw new RuntimeException("was not able to enter " + op
+            throw new AssertionError("was not able to enter " + op
                 + " in " + dt + " ns");
         }
 
@@ -144,7 +144,7 @@ public class JoinOrSleepOnCRPauseTest {
         long eps = Math.abs(tAfterRestore - tDone);
 
         if (eps > EPS_NS) {
-            throw new AssertionError(
+            throw new RuntimeException(
                 "the " + op + "ing thread has finished in " + eps + " ns "
                 + "after the restore (expected: " + EPS_NS + " ns)");
         }
