@@ -19,16 +19,21 @@
 // have any questions.
 
 /*
- * @test WaitOnCRPauseTest.java
+ * @test JoinSleepWaitOnCRPauseTest.java
  * @requires (os.family == "linux")
  * @library /test/lib
- * @summary check if Object.wait(timeout)
- *          will be ended on restore immediately
- *          if its end time fell on the CRaC pause period
+ * @summary check if Thread.join(timeout), Thread.sleep(timeout)
+ *          and Object.wait(timeout)
+ *          will be completed on restore immediately
+ *          if their end time fell on the CRaC pause period
  *          (i.e. between the checkpoint and restore)
  *
- * @run main/othervm WaitOnCRPauseTest wait_ms
- * @run main/othervm WaitOnCRPauseTest wait_ns
+ * @run main/othervm JoinSleepWaitOnCRPauseTest join_ms
+ * @run main/othervm JoinSleepWaitOnCRPauseTest join_ns
+ * @run main/othervm JoinSleepWaitOnCRPauseTest sleep_ms
+ * @run main/othervm JoinSleepWaitOnCRPauseTest sleep_ns
+ * @run main/othervm JoinSleepWaitOnCRPauseTest wait_ms
+ * @run main/othervm JoinSleepWaitOnCRPauseTest wait_ns
  */
 
 
@@ -38,13 +43,14 @@ import jdk.test.lib.process.ProcessTools;
 import java.util.concurrent.CountDownLatch;
 
 
-public class WaitOnCRPauseTest {
+public class JoinSleepWaitOnCRPauseTest {
 
-    private static enum TestType {wait_ms, wait_ns};
+    private static enum TestType {
+        join_ms, join_ns, sleep_ms, sleep_ns, wait_ms, wait_ns};
     private final TestType testType;
 
     private final static long EPS_NS = Long.parseLong(System.getProperty(
-        "test.jdk.java.lang.Object.crac.WaitOnCRPauseTest.eps",
+        "test.jdk.java.lang.Thread.crac.JoinSleepWaitOnCRPauseTest.eps",
         "100000000")); // default: 0.1s
 
     private static final long CRPAUSE_MS = 4000;
@@ -57,37 +63,55 @@ public class WaitOnCRPauseTest {
     private final CountDownLatch checkpointLatch = new CountDownLatch(1);
 
 
-    private WaitOnCRPauseTest(TestType testType) {
+    private JoinSleepWaitOnCRPauseTest(TestType testType) {
         this.testType = testType;
     }
 
     private void runTest() throws Exception {
 
+        String op = testType.name();
+        op = op.substring(0, op.length() - 3); // remove suffix
+
+        Thread mainThread = Thread.currentThread();
+
         Runnable r = () -> {
 
-            synchronized (this) {
+            try {
 
-                try {
+                checkpointLatch.countDown();
 
-                    checkpointLatch.countDown();
+                switch (testType) {
 
-                    switch (testType) {
+                    case join_ms:
+                        mainThread.join(T_MS);
+                        break;
 
-                        case wait_ms:
-                            wait(T_MS);
-                            break;
+                    case join_ns:
+                        mainThread.join(T_MS, T_NS);
+                        break;
 
-                        case wait_ns:
-                            wait(T_MS, T_NS);
-                            break;
+                    case sleep_ms:
+                        Thread.sleep(T_MS);
+                        break;
 
-                        default:
-                            throw new IllegalArgumentException("unknown test type");
-                    }
+                    case sleep_ns:
+                        Thread.sleep(T_MS, T_NS);
+                        break;
 
-                } catch (InterruptedException ie) {
-                    throw new RuntimeException(ie);
+                    case wait_ms:
+                        synchronized(this) { wait(T_MS);  }
+                        break;
+
+                    case wait_ns:
+                        synchronized(this) { wait(T_MS, T_NS);  }
+                        break;
+
+                    default:
+                        throw new IllegalArgumentException("unknown test type");
                 }
+
+            } catch (InterruptedException ie) {
+                throw new RuntimeException(ie);
             }
 
             tDone = System.nanoTime();
@@ -107,8 +131,8 @@ public class WaitOnCRPauseTest {
         Thread.sleep(dt / 1_000_000);
 
         if (t.getState() != Thread.State.TIMED_WAITING) {
-            throw new AssertionError("was not able to reach "
-                + "waiting state in " + dt + " ns");
+            throw new AssertionError("was not able to enter " + op
+                + " in " + dt + " ns");
         }
 
         long tBeforeCheckpoint = System.nanoTime();
@@ -127,14 +151,14 @@ public class WaitOnCRPauseTest {
 
         if (tDone < tBeforeCheckpoint + EPS_NS) {
             throw new AssertionError(
-                "wait has finished before the checkpoint");
+                op + " has finished before the checkpoint");
         }
 
         long eps = Math.abs(tAfterRestore - tDone);
 
         if (eps > EPS_NS) {
             throw new RuntimeException(
-                "the waiting thread has finished in " + eps + " ns "
+                "the " + op + "ing thread has finished in " + eps + " ns "
                 + "after the restore (expected: " + EPS_NS + " ns)");
         }
     }
@@ -144,7 +168,7 @@ public class WaitOnCRPauseTest {
 
         if (args.length > 1) {
 
-            new WaitOnCRPauseTest(
+            new JoinSleepWaitOnCRPauseTest(
                     TestType.valueOf(args[0])).runTest();
 
         } else if (args.length > 0) {
@@ -152,7 +176,7 @@ public class WaitOnCRPauseTest {
             String crImg = "cr_" + args[0];
 
             ProcessBuilder pb = ProcessTools.createJavaProcessBuilder(
-                "-XX:CRaCCheckpointTo=" + crImg, "WaitOnCRPauseTest",
+                "-XX:CRaCCheckpointTo=" + crImg, "JoinSleepWaitOnCRPauseTest",
                 args[0], "runTest");
             OutputAnalyzer out = new OutputAnalyzer(pb.start());
             out.shouldContain("CR: Checkpoint");
@@ -163,7 +187,7 @@ public class WaitOnCRPauseTest {
             Thread.sleep(CRPAUSE_MS);
 
             pb = ProcessTools.createJavaProcessBuilder(
-                "-XX:CRaCRestoreFrom=" + crImg, "WaitOnCRPauseTest");
+                "-XX:CRaCRestoreFrom=" + crImg, "JoinSleepWaitOnCRPauseTest");
             out = new OutputAnalyzer(pb.start());
             out.shouldHaveExitValue(0);
 
