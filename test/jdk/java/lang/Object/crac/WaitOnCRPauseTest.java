@@ -19,18 +19,16 @@
 // have any questions.
 
 /*
- * @test JoinOrSleepOnCRPauseTest.java
+ * @test WaitOnCRPauseTest.java
  * @requires (os.family == "linux")
  * @library /test/lib
- * @summary check if Thread.join(timeout) and Thread.sleep(timeout)
- *          will be completed on restore immediately
- *          if their end time fell on the CRaC pause period
+ * @summary check if Object.wait(timeout)
+ *          will be ended on restore immediately
+ *          if its end time fell on the CRaC pause period
  *          (i.e. between the checkpoint and restore)
  *
- * @run main/othervm JoinOrSleepOnCRPauseTest join_ms
- * @run main/othervm JoinOrSleepOnCRPauseTest join_ns
- * @run main/othervm JoinOrSleepOnCRPauseTest sleep_ms
- * @run main/othervm JoinOrSleepOnCRPauseTest sleep_ns
+ * @run main/othervm WaitOnCRPauseTest wait_ms
+ * @run main/othervm WaitOnCRPauseTest wait_ns
  */
 
 
@@ -40,13 +38,13 @@ import jdk.test.lib.process.ProcessTools;
 import java.util.concurrent.CountDownLatch;
 
 
-public class JoinOrSleepOnCRPauseTest {
+public class WaitOnCRPauseTest {
 
-    private static enum TestType {join_ms, join_ns, sleep_ms, sleep_ns};
+    private static enum TestType {wait_ms, wait_ns};
     private final TestType testType;
 
     private final static long EPS_NS = Long.parseLong(System.getProperty(
-        "test.jdk.java.lang.Thread.crac.JoinOrSleepOnCRPauseTest.eps",
+        "test.jdk.java.lang.Object.crac.WaitOnCRPauseTest.eps",
         "100000000")); // default: 0.1s
 
     private static final long CRPAUSE_MS = 4000;
@@ -59,47 +57,37 @@ public class JoinOrSleepOnCRPauseTest {
     private final CountDownLatch checkpointLatch = new CountDownLatch(1);
 
 
-    private JoinOrSleepOnCRPauseTest(TestType testType) {
+    private WaitOnCRPauseTest(TestType testType) {
         this.testType = testType;
     }
 
     private void runTest() throws Exception {
 
-        String op = testType.name();
-        op = op.substring(0, op.length() - 3); // remove suffix
-
-        Thread mainThread = Thread.currentThread();
-
         Runnable r = () -> {
 
-            try {
+            synchronized (this) {
 
-                checkpointLatch.countDown();
+                try {
 
-                switch (testType) {
+                    checkpointLatch.countDown();
 
-                    case join_ms:
-                        mainThread.join(T_MS);
-                        break;
+                    switch (testType) {
 
-                    case join_ns:
-                        mainThread.join(T_MS, T_NS);
-                        break;
+                        case wait_ms:
+                            wait(T_MS);
+                            break;
 
-                    case sleep_ms:
-                        Thread.sleep(T_MS);
-                        break;
+                        case wait_ns:
+                            wait(T_MS, T_NS);
+                            break;
 
-                    case sleep_ns:
-                        Thread.sleep(T_MS, T_NS);
-                        break;
+                        default:
+                            throw new IllegalArgumentException("unknown test type");
+                    }
 
-                    default:
-                        throw new IllegalArgumentException("unknown test type");
+                } catch (InterruptedException ie) {
+                    throw new RuntimeException(ie);
                 }
-
-            } catch (InterruptedException ie) {
-                throw new RuntimeException(ie);
             }
 
             tDone = System.nanoTime();
@@ -119,8 +107,8 @@ public class JoinOrSleepOnCRPauseTest {
         Thread.sleep(dt / 1_000_000);
 
         if (t.getState() != Thread.State.TIMED_WAITING) {
-            throw new AssertionError("was not able to enter " + op
-                + " in " + dt + " ns");
+            throw new AssertionError("was not able to reach "
+                + "waiting state in " + dt + " ns");
         }
 
         long tBeforeCheckpoint = System.nanoTime();
@@ -139,14 +127,14 @@ public class JoinOrSleepOnCRPauseTest {
 
         if (tDone < tBeforeCheckpoint + EPS_NS) {
             throw new AssertionError(
-                op + " has finished before the checkpoint");
+                "wait has finished before the checkpoint");
         }
 
         long eps = Math.abs(tAfterRestore - tDone);
 
         if (eps > EPS_NS) {
             throw new RuntimeException(
-                "the " + op + "ing thread has finished in " + eps + " ns "
+                "the waiting thread has finished in " + eps + " ns "
                 + "after the restore (expected: " + EPS_NS + " ns)");
         }
     }
@@ -156,7 +144,7 @@ public class JoinOrSleepOnCRPauseTest {
 
         if (args.length > 1) {
 
-            new JoinOrSleepOnCRPauseTest(
+            new WaitOnCRPauseTest(
                     TestType.valueOf(args[0])).runTest();
 
         } else if (args.length > 0) {
@@ -164,7 +152,7 @@ public class JoinOrSleepOnCRPauseTest {
             String crImg = "cr_" + args[0];
 
             ProcessBuilder pb = ProcessTools.createJavaProcessBuilder(
-                "-XX:CRaCCheckpointTo=" + crImg, "JoinOrSleepOnCRPauseTest",
+                "-XX:CRaCCheckpointTo=" + crImg, "WaitOnCRPauseTest",
                 args[0], "runTest");
             OutputAnalyzer out = new OutputAnalyzer(pb.start());
             out.shouldContain("CR: Checkpoint");
@@ -175,7 +163,7 @@ public class JoinOrSleepOnCRPauseTest {
             Thread.sleep(CRPAUSE_MS);
 
             pb = ProcessTools.createJavaProcessBuilder(
-                "-XX:CRaCRestoreFrom=" + crImg, "JoinOrSleepOnCRPauseTest");
+                "-XX:CRaCRestoreFrom=" + crImg, "WaitOnCRPauseTest");
             out = new OutputAnalyzer(pb.start());
             out.shouldHaveExitValue(0);
 
